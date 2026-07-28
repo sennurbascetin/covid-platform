@@ -1,0 +1,60 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: covid_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: covid_admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./api
+    container_name: covid_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Overrides for container networking: inside compose, services
+      # reach each other by service name, and the Snowflake key is
+      # mounted read-only at /secrets.
+      
+      MONGO_HOST: mongo
+      SNOWFLAKE_PRIVATE_KEY_FILE: /secrets/rsa_key.p8
+      SNAPSHOT_DIR: /snapshot
+    volumes:
+      - ./secrets:/secrets:ro
+      - ./data/snapshot:/snapshot:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  dashboard:
+    build: ./dashboard
+    container_name: covid_dashboard
+    restart: unless-stopped
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "8050:8050"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  mongo_data:

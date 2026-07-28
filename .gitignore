@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+.env
+secrets/
+report/
+data/owid_covid.csv

@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+snowflake-connector-python[pandas]
+python-dotenv
+pymongo
+pandas
+cachetools
+email-validator
+statsmodels
+scikit-learn
+pyarrow
