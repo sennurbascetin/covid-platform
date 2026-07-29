@@ -32,6 +32,14 @@ N_FORECAST = 30   # days to forecast beyond the end of the dataset
 
 
 def load_daily_series(conn, country: str) -> pd.Series:
+    """Fetch the cumulative confirmed-case series for GLOBAL or one
+    country. Both branches GROUP BY DATE: JHU records province/state
+    rows separately, so a country like the US or China has several
+    rows per date. Without the GROUP BY, .set_index("DATE") below
+    would collide on duplicate dates for any such country - this
+    only stayed silent for Turkey, which happens to have one row
+    per date already.
+    """
     if country == "GLOBAL":
         query = """
             SELECT DATE, SUM(CASES) AS CUM_CONFIRMED
@@ -43,15 +51,23 @@ def load_daily_series(conn, country: str) -> pd.Series:
         df = fetch_df(conn, query)
     else:
         query = """
-            SELECT DATE, CASES AS CUM_CONFIRMED
+            SELECT DATE, SUM(CASES) AS CUM_CONFIRMED
             FROM JHU_COVID_19
             WHERE CASE_TYPE = 'Confirmed' AND COUNTRY_REGION = %(country)s
+            GROUP BY DATE
             ORDER BY DATE
         """
         cur = conn.cursor()
         cur.execute(query, {"country": country})
         df = cur.fetch_pandas_all()
         df["DATE"] = pd.to_datetime(df["DATE"])
+
+        # SUM() returns a Snowflake NUMBER, which fetch_pandas_all()
+        # sometimes hands back as Python Decimal (dtype 'object') when
+        # the query isn't run through fetch_df()'s cleanup - the same
+        # issue documented in sf_connect.py. Cast explicitly so the
+        # forecasting model gets real floats.
+        df["CUM_CONFIRMED"] = pd.to_numeric(df["CUM_CONFIRMED"])
 
     df = df.set_index("DATE").asfreq("D")  # one row per calendar day
     daily_new = df["CUM_CONFIRMED"].diff()
