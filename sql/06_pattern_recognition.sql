@@ -11,16 +11,35 @@
 
 -- Step 1: weekly new cases per country, derived from the
 -- pre-aggregated daily table built in Task 7.
+-- Correct definition: this week's CLOSING cumulative minus LAST
+-- week's closing cumulative. The earlier version used
+-- MAX(cum)-MIN(cum) within each week, which measures only the
+-- inside-the-week increase and silently drops the week-boundary
+-- jump - a systematic undercount that distorted every wave found.
 CREATE OR REPLACE VIEW COVID_PROJECT.ANALYTICS.WEEKLY_NEW_CASES AS
+WITH weekly_close AS (
+    SELECT COUNTRY_REGION,
+           DATE_TRUNC('week', DATE) AS WEEK_START,
+           MAX(CUM_CONFIRMED)       AS WEEK_CLOSE
+    FROM COVID_PROJECT.ANALYTICS.JHU_DAILY_COUNTRY
+    GROUP BY COUNTRY_REGION, DATE_TRUNC('week', DATE)
+)
 SELECT COUNTRY_REGION,
-       DATE_TRUNC('week', DATE)                          AS WEEK_START,
-       GREATEST(MAX(CUM_CONFIRMED) - MIN(CUM_CONFIRMED), 0) AS NEW_CASES
-FROM COVID_PROJECT.ANALYTICS.JHU_DAILY_COUNTRY
-GROUP BY COUNTRY_REGION, WEEK_START;
+       WEEK_START,
+       GREATEST(
+           WEEK_CLOSE - LAG(WEEK_CLOSE) OVER (
+               PARTITION BY COUNTRY_REGION ORDER BY WEEK_START
+           ), 0
+       ) AS NEW_CASES
+FROM weekly_close
+QUALIFY LAG(WEEK_CLOSE) OVER (
+    PARTITION BY COUNTRY_REGION ORDER BY WEEK_START
+) IS NOT NULL;
 
 -- Step 2: find wave patterns. MATCH_RECOGNIZE walks through each
 -- country's weeks in order (PARTITION BY country, ORDER BY week)
 -- and hunts for the sequence: 3+ rising weeks then 2+ falling.
+
 SELECT *
 FROM COVID_PROJECT.ANALYTICS.WEEKLY_NEW_CASES
 MATCH_RECOGNIZE (
