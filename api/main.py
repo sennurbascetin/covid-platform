@@ -439,9 +439,17 @@ def global_timeseries(rolling: int = 7, country: str | None = None):
     """World-wide daily new cases/deaths, summed across every country.
 
     Daily numbers are differenced per country FIRST and only then
-    summed, so a country entering or leaving the dataset does not
-    create a phantom global spike. If `country` is given, its share
-    of the world total is computed on the fly and returned alongside.
+    summed for the incidence chart, so a country entering or leaving
+    the dataset does not create a phantom global spike.
+
+    Totals are calculated separately, from each country's latest
+    cumulative figure - NOT by summing the clipped daily differences
+    above. Summing the clipped differences would silently miss two
+    things: each country's first reported day (diff() has no prior
+    row to subtract there) and any downward revision (clipped to
+    zero for the chart, but still present in the true cumulative
+    count). If `country` is given, its share of the world total is
+    computed the same way and returned alongside.
     """
     def produce():
         df = load_all_daily()
@@ -456,22 +464,29 @@ def global_timeseries(rolling: int = 7, country: str | None = None):
             for c in ("NEW_CONFIRMED", "NEW_DEATHS"):
                 world[c] = world[c].rolling(rolling, min_periods=1).mean()
 
+        # Totals: each country's LATEST cumulative row, summed - this
+        # is the true world total, independent of the clipped daily
+        # differences used for the chart above.
+        latest = df.sort_values("DATE").groupby("COUNTRY_REGION").tail(1)
+        world_total_cases = float(latest["CUM_CONFIRMED"].sum())
+        world_total_deaths = float(latest["CUM_DEATHS"].sum())
+
         totals = {
-            "world_total_cases": float(df["NEW_CONFIRMED"].sum()),
-            "world_total_deaths": float(df["NEW_DEATHS"].sum()),
+            "world_total_cases": world_total_cases,
+            "world_total_deaths": world_total_deaths,
             "countries_counted": int(df["COUNTRY_REGION"].nunique()),
         }
 
         share = None
         if country:
-            sub = df[df["COUNTRY_REGION"] == country]
-            if not sub.empty and totals["world_total_cases"] > 0:
+            sub = latest[latest["COUNTRY_REGION"] == country]
+            if not sub.empty and world_total_cases > 0:
                 share = {
                     "country": country,
                     "cases_share_pct": round(
-                        sub["NEW_CONFIRMED"].sum() / totals["world_total_cases"] * 100, 2),
+                        float(sub["CUM_CONFIRMED"].iloc[0]) / world_total_cases * 100, 2),
                     "deaths_share_pct": round(
-                        sub["NEW_DEATHS"].sum() / totals["world_total_deaths"] * 100, 2),
+                        float(sub["CUM_DEATHS"].iloc[0]) / world_total_deaths * 100, 2),
                 }
 
         return {
