@@ -271,6 +271,26 @@ app.layout = html.Div(
                 clearable=False,
             ),
 
+            html.Label("Scale", style={"fontSize": "13px", "fontWeight": "600",
+                                       "color": INK, "marginTop": "12px", "display": "block"}),
+            dcc.Dropdown(
+                id="scale-dropdown",
+                options=[
+                    {"label": "Absolute numbers", "value": "absolute"},
+                    {"label": "Per 100k population", "value": "per100k"},
+                    {"label": "Log scale", "value": "log"},
+                ],
+                value="absolute",
+                clearable=False,
+            ),
+            html.P("Absolute counts are misleading between countries of very "
+                   "different size: China has 17x Turkey's population, so its "
+                   "curve dominates the axis even though Turkey's per-capita "
+                   "toll is far higher. Per-100k normalises for that; log "
+                   "scale keeps both readable on one axis.",
+                   style={"fontSize": "11px", "color": MUTED, "marginTop": "6px",
+                          "lineHeight": "1.4"}),
+
             html.Hr(style={"border": f"1px solid {BORDER}", "margin": "16px 0"}),
             html.Div(id="summary-cards"),
         ]),
@@ -286,6 +306,7 @@ app.layout = html.Div(
                    style={"color": MUTED, "fontSize": "13px"}),
             dcc.Graph(id="global-chart"),
             html.Hr(style={"border": f"1px solid {BORDER}", "margin": "24px 0"}), 
+            html.Div(id="scale-warning"),
             dcc.Graph(id="cases-chart"),
             dcc.Graph(id="deaths-chart"),
 
@@ -419,17 +440,18 @@ def update_annotation_target(country_a, country_b):
     Output("vaccination-chart", "figure"),
     Output("forecast-chart", "figure"),
     Output("cluster-chart", "figure"),
+    Output("scale-warning", "children"),
     Input("country-a-dropdown", "value"),
     Input("country-b-dropdown", "value"),
     Input("rolling-dropdown", "value"),
-)
-def update_view(country_a, country_b, rolling):
+    Input("scale-dropdown", "value"))
+
+def update_view(country_a, country_b, rolling, scale):
     country_b = country_b or None
 
     if not country_a:
-        return ([], go.Figure(), go.Figure(), go.Figure(), go.Figure(),
-                go.Figure(), go.Figure(), go.Figure(), go.Figure())
-
+        return ([], go.Figure(), go.Figure(), go.Figure(), go.Figure(), go.Figure(),
+                go.Figure(), go.Figure(), go.Figure(), None)
     summary_a = fetch_summary(country_a)
     summary_b = fetch_summary(country_b) if country_b else {}
 
@@ -506,25 +528,92 @@ def update_view(country_a, country_b, rolling):
             margin=dict(l=60, r=70, t=60, b=40))
 
 
+    # Scale handling. Comparing absolute counts across countries of very
+    # different size lets the larger one own the axis: China's population
+    # is 17x Turkey's, so its curve flattens Turkey into what looks like
+    # a zero line - even though Turkey's deaths per 100k (123.8) are far
+    # higher than China's (7.0). Per-100k removes that distortion; log
+    # scale keeps both magnitudes readable on a shared axis.
+    def rescale(ts, summary, col):
+        if ts.empty or col not in ts:
+            return None
+        if scale == "per100k":
+            pop = summary.get("POPULATION")
+            if pop:
+                return ts[col] / pop * 100_000
+        return ts[col]
+
+    if scale == "per100k":
+        cases_axis, deaths_axis = "new cases / 100k / day", "deaths / 100k / day"
+    else:
+        cases_axis, deaths_axis = "new cases / day", "new deaths / day"
+
     cases_fig, deaths_fig = go.Figure(), go.Figure()
-    if not ts_a.empty:
-        cases_fig.add_trace(go.Scatter(x=ts_a["DATE"], y=ts_a["NEW_CONFIRMED"],
-                                       mode="lines", name=country_a,
-                                       line=dict(color=COUNTRY_A_COLOR, width=2)))
-        deaths_fig.add_trace(go.Scatter(x=ts_a["DATE"], y=ts_a["NEW_DEATHS"],
-                                        mode="lines", name=country_a,
-                                        line=dict(color=COUNTRY_A_COLOR, width=2)))
-    if country_b and not ts_b.empty:
-        cases_fig.add_trace(go.Scatter(x=ts_b["DATE"], y=ts_b["NEW_CONFIRMED"],
-                                       mode="lines", name=country_b,
-                                       line=dict(color=COUNTRY_B_COLOR, width=2)))
-        deaths_fig.add_trace(go.Scatter(x=ts_b["DATE"], y=ts_b["NEW_DEATHS"],
-                                        mode="lines", name=country_b,
-                                        line=dict(color=COUNTRY_B_COLOR, width=2)))
-    cases_fig.update_layout(template="plotly_white", title=f"Daily new confirmed cases - {title_suffix}",
-                            yaxis_title="new cases / day", margin=dict(l=50, r=20, t=50, b=40))
-    deaths_fig.update_layout(template="plotly_white", title=f"Daily deaths - {title_suffix}",
-                             yaxis_title="new deaths / day", margin=dict(l=50, r=20, t=50, b=40))
+    for ts, summary, name, colour in (
+        (ts_a, summary_a, country_a, COUNTRY_A_COLOR),
+        (ts_b, summary_b, country_b, COUNTRY_B_COLOR),
+    ):
+        if not name or ts.empty:
+            continue
+        y_cases = rescale(ts, summary, "NEW_CONFIRMED")
+        y_deaths = rescale(ts, summary, "NEW_DEATHS")
+        if y_cases is not None:
+            cases_fig.add_trace(go.Scatter(x=ts["DATE"], y=y_cases, mode="lines",
+                                           name=name, line=dict(color=colour, width=2)))
+        if y_deaths is not None:
+            deaths_fig.add_trace(go.Scatter(x=ts["DATE"], y=y_deaths, mode="lines",
+                                            name=name, line=dict(color=colour, width=2)))
+
+
+
+# Nudge the user toward per-capita when absolute counts would be
+    # misleading. A reader comparing Turkey (82M) with China (1.4B) on
+    # raw counts sees Turkey flattened into what looks like a zero
+    # line, when in fact Turkey's per-capita toll is far higher - so
+    # the dashboard says so instead of leaving it to be noticed.
+    scale_warning = None
+    if scale == "absolute" and country_b:
+        pop_a, pop_b = summary_a.get("POPULATION"), summary_b.get("POPULATION")
+        if pop_a and pop_b:
+            ratio = max(pop_a, pop_b) / min(pop_a, pop_b)
+            if ratio >= 3:
+                bigger = country_a if pop_a > pop_b else country_b
+                smaller = country_b if pop_a > pop_b else country_a
+                scale_warning = html.Div([
+                    html.B("Population differs by "),
+                    html.B(f"{ratio:.0f}x", style={"color": COUNTRY_A_COLOR}),
+                    html.Span(f" — {bigger} has far more people than {smaller}, "
+                              f"so its curve will dominate the axis on absolute "
+                              f"counts even if its per-capita burden is lower. "
+                              f"Switch "),
+                    html.B("Scale"),
+                    html.Span(" to “Per 100k population” for a fair comparison."),
+                ], style={
+                    "background": "#fff8e6",
+                    "border": "1px solid #f0d9a0",
+                    "borderLeft": f"5px solid #d99e2b",
+                    "borderRadius": "8px",
+                    "padding": "12px 16px",
+                    "marginBottom": "12px",
+                    "fontSize": "13px",
+                    "color": INK,
+                })
+
+    scale_note = {"absolute": "", "per100k": " (per 100k)", "log": " (log scale)"}[scale]
+    cases_fig.update_layout(
+        template="plotly_white",
+        title=f"Daily new confirmed cases - {title_suffix}{scale_note}",
+        yaxis_title=cases_axis, margin=dict(l=60, r=20, t=50, b=40))
+    deaths_fig.update_layout(
+        template="plotly_white",
+        title=f"Daily deaths - {title_suffix}{scale_note}",
+        yaxis_title=deaths_axis, margin=dict(l=60, r=20, t=50, b=40))
+
+    if scale == "log":
+        # zeros cannot be plotted on a log axis; Plotly drops them,
+        # which is the honest behaviour here (no data to show)
+        cases_fig.update_yaxes(type="log")
+        deaths_fig.update_yaxes(type="log")
 
     ENRICHED_ALL = get_all_enriched()
     region_fig = go.Figure()
@@ -719,7 +808,7 @@ def update_view(country_a, country_b, rolling):
             margin=dict(l=50, r=20, t=20, b=40))
 
     return (cards, global_fig, cases_fig, deaths_fig, region_fig, scatter_fig,
-            vax_fig, forecast_fig, cluster_fig)
+            vax_fig, forecast_fig, cluster_fig, scale_warning)
 
 
 @app.callback(

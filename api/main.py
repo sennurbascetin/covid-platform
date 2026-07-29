@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import snowflake.connector
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, EmailStr
 from pymongo import MongoClient
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
@@ -293,7 +293,7 @@ def all_enriched():
 
 
 @app.get("/covid/{country}")
-def covid_timeseries(country: str, rolling: int = 1):
+def covid_timeseries(country: str, rolling: int = Query(1, ge=1, le=30)):
     """Daily new cases/deaths for one country, computed on the fly
     from cumulative numbers. Cached per (country, rolling) pair -
     Task 8."""
@@ -314,8 +314,12 @@ def covid_timeseries(country: str, rolling: int = 1):
         df["NEW_DEATHS"] = df["CUM_DEATHS"].diff().clip(lower=0)
 
         if rolling > 1:
-            df["NEW_CONFIRMED"] = df["NEW_CONFIRMED"].rolling(rolling).mean()
-            df["NEW_DEATHS"] = df["NEW_DEATHS"].rolling(rolling).mean()
+            # min_periods=1 so the first days of the series show a
+            # partial average instead of NaN (which fillna would then
+            # turn into a misleading zero). Matches /global and
+            # /forecast, which already do this.
+            df["NEW_CONFIRMED"] = df["NEW_CONFIRMED"].rolling(rolling, min_periods=1).mean()
+            df["NEW_DEATHS"] = df["NEW_DEATHS"].rolling(rolling, min_periods=1).mean()
 
         keep = ["DATE", "CUM_CONFIRMED", "CUM_DEATHS", "NEW_CONFIRMED", "NEW_DEATHS"]
         return df[keep].fillna(0).to_dict(orient="records")
