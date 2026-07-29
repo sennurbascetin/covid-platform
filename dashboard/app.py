@@ -124,17 +124,27 @@ def get_all_enriched():
 
 
 def fetch_summary(country):
+    """A transient API timeout must not take down the whole callback:
+    every fetch helper returns an empty result instead of raising, so
+    one slow endpoint degrades a single chart rather than the page."""
     if not country:
         return {}
-    resp = requests.get(f"{API_URL}/covid/{country}/summary", timeout=10)
-    return resp.json() if resp.ok else {}
+    try:
+        resp = requests.get(f"{API_URL}/covid/{country}/summary", timeout=10)
+        return resp.json() if resp.ok else {}
+    except (requests.RequestException, ValueError):
+        return {}
 
 
 def fetch_timeseries(country, rolling):
     if not country:
         return pd.DataFrame()
-    resp = requests.get(f"{API_URL}/covid/{country}", params={"rolling": rolling}, timeout=10)
-    return pd.DataFrame(resp.json()) if resp.ok else pd.DataFrame()
+    try:
+        resp = requests.get(f"{API_URL}/covid/{country}",
+                            params={"rolling": rolling}, timeout=10)
+        return pd.DataFrame(resp.json()) if resp.ok else pd.DataFrame()
+    except (requests.RequestException, ValueError):
+        return pd.DataFrame()
 
 
 def fetch_forecast(country):

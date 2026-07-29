@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -31,6 +32,11 @@ load_dotenv(ROOT / ".env")
 # FORCE_SNAPSHOT=1 forces the fallback path, which is how I verify it.
 SNAPSHOT_DIR = Path(os.getenv("SNAPSHOT_DIR", ROOT / "data" / "snapshot"))
 FORCE_SNAPSHOT = os.getenv("FORCE_SNAPSHOT", "").strip() in {"1", "true", "yes"}
+# How long to stay on the snapshot before trying Snowflake again.
+# Without this the first failure would pin the process to the
+# snapshot until restart, because the Snowflake path only runs when
+# sf_conn is not None.
+SNOWFLAKE_RETRY_AFTER = 300  # seconds
 
 
 def get_snowflake_connection():
@@ -105,18 +111,29 @@ def read_snapshot(name):
 
 def query_data(query, params, snapshot_name, snapshot_filter=None):
     """Single data-access path for every endpoint: live Snowflake when
-    possible, local snapshot otherwise. `snapshot_filter` re-applies
-    in pandas whatever the SQL WHERE/ORDER BY did, so both paths return
+    possible, local snapshot otherwise. A failure is not permanent -
+    after SNOWFLAKE_RETRY_AFTER seconds the next request tries to
+    reconnect, so a transient network problem does not pin the process
+    to the snapshot until restart. `snapshot_filter` re-applies in
+    pandas whatever the SQL WHERE/ORDER BY did, so both paths return
     the same frame."""
-    if not FORCE_SNAPSHOT and app.state.sf_conn is not None:
-        try:
-            df = fetch_df(app.state.sf_conn, query, params)
-            app.state.data_source = "snowflake"
-            return df
-        except Exception:
-            # Trial expired, network down, credentials rotated - it
-            # doesn't matter which: serve the snapshot instead of a 500.
-            app.state.sf_conn = None
+    if not FORCE_SNAPSHOT:
+        if app.state.sf_conn is None and time.monotonic() >= app.state.sf_retry_at:
+            try:
+                app.state.sf_conn = get_snowflake_connection()
+                app.state.sf_reconnects += 1
+            except Exception:
+                app.state.sf_retry_at = time.monotonic() + SNOWFLAKE_RETRY_AFTER
+
+        if app.state.sf_conn is not None:
+            try:
+                df = fetch_df(app.state.sf_conn, query, params)
+                app.state.data_source = "snowflake"
+                return df
+            except Exception:
+                app.state.sf_conn = None
+                app.state.sf_failures += 1
+                app.state.sf_retry_at = time.monotonic() + SNOWFLAKE_RETRY_AFTER
 
     app.state.data_source = "snapshot"
     df = read_snapshot(snapshot_name).copy()
@@ -176,6 +193,9 @@ async def lifespan(app: FastAPI):
     # starting - it just means every request is served from the
     # snapshot instead.
     app.state.data_source = "unknown"
+    app.state.sf_retry_at = 0.0
+    app.state.sf_failures = 0
+    app.state.sf_reconnects = 0
     if FORCE_SNAPSHOT:
         app.state.sf_conn = None
     else:
@@ -255,6 +275,8 @@ def health():
         "snowflake_connected": app.state.sf_conn is not None,
         "force_snapshot": FORCE_SNAPSHOT,
         "last_data_source": app.state.data_source,
+        "snowflake_failures": app.state.sf_failures,
+        "snowflake_reconnects": app.state.sf_reconnects,
         "snapshot_dir": str(SNAPSHOT_DIR),
         "snapshot_files_present": sorted(
             p.name for p in SNAPSHOT_DIR.glob("*.parquet")
