@@ -11,7 +11,7 @@ import pandas as pd
 import snowflake.connector
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from pymongo import MongoClient
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from sklearn.cluster import KMeans
@@ -229,14 +229,17 @@ app = FastAPI(
 
 
 class Annotation(BaseModel):
-    country: str
-    date: str
-    metric: str
-    comment: str
-    author: str
+    """Length caps keep a public write endpoint from accepting
+    unbounded strings; without them a single request could store an
+    arbitrarily large document."""
+    country: str = Field(max_length=100)
+    date: str = Field(max_length=10)
+    metric: str = Field(max_length=50)
+    comment: str = Field(min_length=1, max_length=2000)
+    author: str = Field(min_length=1, max_length=100)
     email: EmailStr
-    tags: list[str] = []
-    source_url: Optional[str] = None
+    tags: list[str] = Field(default_factory=list, max_length=10)
+    source_url: Optional[str] = Field(default=None, max_length=500)
 
 
 @app.get("/")
@@ -293,7 +296,12 @@ def all_enriched():
 
 
 @app.get("/covid/{country}")
-def covid_timeseries(country: str, rolling: int = Query(1, ge=1, le=30)):
+def covid_timeseries(
+    country: str,
+    rolling: int = Query(1, ge=1, le=30,
+                         description="Rolling-average window in days"),
+):
+    
     """Daily new cases/deaths for one country, computed on the fly
     from cumulative numbers. Cached per (country, rolling) pair -
     Task 8."""
@@ -342,7 +350,13 @@ def covid_summary(country: str):
 
 
 @app.get("/forecast/{country}")
-def forecast_country(country: str, horizon: int = 30, test: int = 30):
+def forecast_country(
+    country: str,
+    horizon: int = Query(30, ge=1, le=90,
+                         description="Days to forecast beyond the data"),
+    test: int = Query(30, ge=7, le=90,
+                      description="Days held out to validate the model"),
+):
     """Task 6: Holt-Winters forecast of daily new cases for one
     country, computed live. Trailing zeros (reporting stopped) are
     trimmed so the model isn't judged on non-reporting days. Cached
@@ -439,7 +453,11 @@ def clusters():
 
 
 @app.get("/global")
-def global_timeseries(rolling: int = 7, country: str | None = None):
+def global_timeseries(
+    rolling: int = Query(7, ge=1, le=30,
+                         description="Rolling-average window in days"),
+    country: str | None = None,
+):
     """World-wide daily new cases/deaths, summed across every country.
 
     Daily numbers are differenced per country FIRST and only then

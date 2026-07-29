@@ -885,4 +885,9 @@ def manage_annotations(country_a, country_b, n_clicks, author, email, comment, t
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=8050)
+    # debug=False: the reloader and interactive traceback page are
+    # development conveniences that should not be exposed by a
+    # container listening on all interfaces. Set DASH_DEBUG=1 locally
+    # when you actually want them.
+    debug = os.getenv("DASH_DEBUG", "").strip() in {"1", "true", "yes"}
+    app.run(debug=debug, host="0.0.0.0", port=8050)
