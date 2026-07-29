@@ -15,11 +15,14 @@ without a Snowflake account.
 
 ```
 Browser
-└──> Dash dashboard (:8050)
-└──> FastAPI (:8000)
-├──> Snowflake — COVID data + enriched tables
-├──> Parquet snapshot — automatic fallback
-└──> MongoDB (:27017) — user annotations
+  |
+  +--> Dash dashboard (:8050)
+         |
+         +--> FastAPI (:8000)
+                |
+                +--> Snowflake ......... COVID data + enriched tables
+                +--> Parquet snapshot ... automatic fallback
+                +--> MongoDB (:27017) ... user annotations
 ```
 
 Three containers orchestrated by Docker Compose: `dashboard`, `api`,
@@ -56,7 +59,7 @@ identically.
 ## Quick start (no Snowflake needed)
 
 ```bash
-git clone <REPO_URL>
+git clone https://github.com/sennurbascetin/covid-platform.git 
 cd covid-platform
 cp .env.example .env          # set MONGO_PASSWORD; Snowflake fields can stay blank
 docker compose up -d --build
@@ -99,12 +102,13 @@ python analysis/setup_mongo_schema.py
 
    | File | Creates |
    |---|---|
-   | `sql/Covid_project.sql` | resource monitor (Task 1) |
+   | `sql/01_setup_resource_monitor.sql` | resource monitor (Task 1) |
    | `sql/02_exploration.sql` | exploration queries (Task 2a) |
-   | `sql/03_workspace_setup.sql` | `COVID_PROJECT.ANALYTICS` + `COUNTRY_BASE` |
+   | `sql/03_create_database.sql` | `COVID_PROJECT.ANALYTICS` database + schema |
    | `sql/04_optimization.sql` | pre-aggregated `JHU_DAILY_COUNTRY` (Task 7) |
-   | `sql/05_pattern_recognition.sql` | MATCH_RECOGNIZE wave detection (Task 9) |
-   | `sql/06_data_quality_checks.sql` | population / ISO-code verification |
+   | `sql/05_country_base.sql` | `COUNTRY_BASE` (population, ISO, per-100k rates) |
+   | `sql/06_pattern_recognition.sql` | MATCH_RECOGNIZE wave detection (Task 9) |
+   | `sql/07_data_quality_checks.sql` | population / ISO-code verification |
 
 4. **Build the enriched table** (Python needed for this step only):
 
