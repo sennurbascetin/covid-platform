@@ -1,4 +1,6 @@
-dash
-plotly
-pandas
-requests
+# Versions pinned so a build that works today still works when someone
+# else clones this repo weeks later.
+dash==4.4.1
+plotly==6.9.0
+pandas==3.0.5
+requests==2.34.2

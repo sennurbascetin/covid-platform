@@ -190,6 +190,45 @@ started with.
   environment variables, so the code runs unchanged locally and inside
   Compose (`MONGO_HOST=mongo`, `API_URL=http://api:8000`).
 
+## Troubleshooting
+
+**A container keeps restarting in a loop.** `mongo:7` requires a CPU
+with AVX support. Some older or budget virtual machines lack it. If
+`docker compose ps` shows `covid_mongo` repeatedly restarting, check
+`docker compose logs mongo` for an illegal-instruction error, then pin
+an older image in `docker-compose.yml`:
+
+    image: mongo:4.4
+
+**Ports 8000 or 8050 are already in use.** Something else on the host
+is bound to those ports. Either stop it, or change the left-hand side
+of the port mapping in `docker-compose.yml` (e.g. `"8001:8000"`) and
+adjust the URL you open in the browser accordingly.
+
+**The stack looks like it is hanging.** A first build takes a few
+minutes (Python images plus dependencies). After that,
+`docker compose up -d` typically reaches `healthy` on `api` and `mongo`
+within 30-40 seconds; `dashboard` follows once `api` is healthy. Check
+progress with:
+
+    docker compose ps
+    docker compose logs api --tail 30
+
+**Snowflake fields are blank or left as placeholders.** This is
+expected and supported - the API detects unset or placeholder
+credentials and serves the bundled Parquet snapshot instead of
+attempting a connection. Check which path is active at
+`http://localhost:8000/health` (`snowflake_configured` and
+`last_data_source`).
+
+## Report
+
+    The written project report (architecture, task-by-task implementation,
+  COVID-19 insights, and screenshots) is submitted separately by email and
+  is not included in this repository. `analysis/output/*.md` contains the
+  underlying automated reports (EDA, enrichment, forecasting, clustering)
+  that the written report draws on.
+
 ## Known limitations
 
 - The JHU dataset ends 2023-03-09; "forecast" means the days after the

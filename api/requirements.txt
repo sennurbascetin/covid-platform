@@ -1,11 +1,13 @@
-fastapi
-uvicorn[standard]
-snowflake-connector-python[pandas]
-python-dotenv
-pymongo
-pandas
-cachetools
-email-validator
-statsmodels
-scikit-learn
-pyarrow
+# Versions pinned so a build that works today still works when someone
+# else clones this repo weeks later.
+fastapi==0.140.13
+uvicorn[standard]==0.52.0
+snowflake-connector-python[pandas]==4.7.1
+python-dotenv==1.2.2
+pymongo==4.17.0
+pandas==2.3.3
+cachetools==7.1.6
+email-validator==2.3.0
+statsmodels==0.14.6
+scikit-learn==1.9.0
+pyarrow==25.0.0

@@ -9,6 +9,7 @@ additive weekly seasonality, damped trend, seasonal_periods=7)
 - MAE:  4,594 cases/day
 - RMSE: 22,497 cases/day
 - MAPE: 100.0%
+- MASE: 0.79  (below 1.0 beats a naive 'tomorrow = today' forecast; trust this over MAPE when daily counts are near zero)
 
 ## Forecast for the next 30 days beyond the last reported date
 

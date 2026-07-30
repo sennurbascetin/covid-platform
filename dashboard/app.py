@@ -314,11 +314,11 @@ app.layout = html.Div(
                    "country in the dataset. Country A's share of the world "
                    "total is computed on the fly and shown in the title.",
                    style={"color": MUTED, "fontSize": "13px"}),
-            dcc.Graph(id="global-chart"),
+            dcc.Loading(dcc.Graph(id="global-chart"), type="circle"),
             html.Hr(style={"border": f"1px solid {BORDER}", "margin": "24px 0"}), 
             html.Div(id="scale-warning"),
-            dcc.Graph(id="cases-chart"),
-            dcc.Graph(id="deaths-chart"),
+            dcc.Loading(dcc.Graph(id="cases-chart"), type="circle"),
+            dcc.Loading(dcc.Graph(id="deaths-chart"), type="circle"),
 
             html.H3("Regional breakdown",
                     style={"color": INK, "borderLeft": f"6px solid {COUNTRY_A_COLOR}",
@@ -326,7 +326,7 @@ app.layout = html.Div(
             html.P("Average COVID deaths per 100k, grouped by world region "
                    "(demographic breakdown, per the assignment brief).",
                    style={"color": MUTED, "fontSize": "13px"}),
-            dcc.Graph(id="region-chart"),
+            dcc.Loading(dcc.Graph(id="region-chart"), type="circle"),
 
             html.H3("GDP per capita vs. COVID deaths per 100,000",
                     style={"color": INK, "borderLeft": f"6px solid {COUNTRY_A_COLOR}",
@@ -334,7 +334,7 @@ app.layout = html.Div(
             html.P("Every dot is one country; Country A and B are highlighted. "
                    "GDP figures come from Our World in Data.",
                    style={"color": MUTED, "fontSize": "13px"}),
-            dcc.Graph(id="scatter-chart"),
+            dcc.Loading(dcc.Graph(id="scatter-chart"), type="circle"),
 
             html.H3("Vaccination vs. excess mortality",
                     style={"color": INK, "borderLeft": f"6px solid {FORECAST_TEST}",
@@ -347,7 +347,7 @@ app.layout = html.Div(
                    "correlation and the same correlation after removing the "
                    "linear effect of age.",
                    style={"color": MUTED, "fontSize": "13px"}),
-            dcc.Graph(id="vaccination-chart"),
+            dcc.Loading(dcc.Graph(id="vaccination-chart"), type="circle"),
 
             html.H3("Case forecast (Holt-Winters)",
                     style={"color": INK, "borderLeft": f"6px solid {FORECAST_FUTURE}",
@@ -362,7 +362,7 @@ app.layout = html.Div(
                    "MAPE is also shown but inflates at the end of the series, "
                    "where daily counts fall to single digits.",
                    style={"color": MUTED, "fontSize": "13px"}),
-            dcc.Graph(id="forecast-chart"),
+            dcc.Loading(dcc.Graph(id="forecast-chart"), type="circle"),
 
             html.H3("Country clusters (K-Means)",
                     style={"color": INK, "borderLeft": f"6px solid {FORECAST_HISTORY}",
@@ -372,7 +372,7 @@ app.layout = html.Div(
                    "so the groups separate visually; axes are principal components, "
                    "not raw units. Country A (and B) are marked with a star.",
                    style={"color": MUTED, "fontSize": "13px"}),
-            dcc.Graph(id="cluster-chart"),
+            dcc.Loading(dcc.Graph(id="cluster-chart"), type="circle"),
 
             html.Hr(style={"border": f"1px solid {BORDER}", "margin": "24px 0"}),
             html.H3("Annotations",

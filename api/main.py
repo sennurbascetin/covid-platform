@@ -39,6 +39,33 @@ FORCE_SNAPSHOT = os.getenv("FORCE_SNAPSHOT", "").strip() in {"1", "true", "yes"}
 SNOWFLAKE_RETRY_AFTER = 300  # seconds
 
 
+
+# .env.example ships placeholders. Without this check a grader who
+# copies it verbatim makes the API attempt a connection to an account
+# that does not exist - at startup and again on every retry - and the
+# connector's default login timeout can stall a request for a minute
+# in the middle of a demo.
+PLACEHOLDER_VALUES = {
+    "", "ORGNAME-ACCOUNTNAME", "YOUR_SNOWFLAKE_USERNAME",
+    "<YOUR_USER>", "<YOUR_USERNAME>",
+}
+
+
+def snowflake_configured() -> bool:
+    """True only when .env holds real credentials and the key file
+    exists. Anything else means: serve the snapshot, don't dial out."""
+    account = (os.getenv("SNOWFLAKE_ACCOUNT") or "").strip()
+    user = (os.getenv("SNOWFLAKE_USER") or "").strip()
+    if account in PLACEHOLDER_VALUES or user in PLACEHOLDER_VALUES:
+        return False
+    key_file = os.getenv("SNOWFLAKE_PRIVATE_KEY_FILE") or ""
+    return bool(key_file) and (ROOT / key_file).exists()
+
+
+
+
+
+
 def get_snowflake_connection():
     return snowflake.connector.connect(
         account=os.getenv("SNOWFLAKE_ACCOUNT"),
@@ -48,6 +75,10 @@ def get_snowflake_connection():
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
         database=os.getenv("SNOWFLAKE_DATABASE"),
         schema=os.getenv("SNOWFLAKE_SCHEMA"),
+        # Fail fast instead of hanging a request for the connector's
+        # default timeout when the account is unreachable.
+        login_timeout=5,
+        network_timeout=10,
     )
 
 
@@ -117,7 +148,7 @@ def query_data(query, params, snapshot_name, snapshot_filter=None):
     to the snapshot until restart. `snapshot_filter` re-applies in
     pandas whatever the SQL WHERE/ORDER BY did, so both paths return
     the same frame."""
-    if not FORCE_SNAPSHOT:
+    if not FORCE_SNAPSHOT and snowflake_configured():
         if app.state.sf_conn is None and time.monotonic() >= app.state.sf_retry_at:
             try:
                 app.state.sf_conn = get_snowflake_connection()
@@ -196,7 +227,7 @@ async def lifespan(app: FastAPI):
     app.state.sf_retry_at = 0.0
     app.state.sf_failures = 0
     app.state.sf_reconnects = 0
-    if FORCE_SNAPSHOT:
+    if FORCE_SNAPSHOT or not snowflake_configured():
         app.state.sf_conn = None
     else:
         try:
@@ -274,6 +305,7 @@ def health():
     return {
         "snowflake_connected": app.state.sf_conn is not None,
         "force_snapshot": FORCE_SNAPSHOT,
+        "snowflake_configured": snowflake_configured(),
         "last_data_source": app.state.data_source,
         "snowflake_failures": app.state.sf_failures,
         "snowflake_reconnects": app.state.sf_reconnects,

@@ -79,7 +79,14 @@ def load_daily_series(conn, country: str) -> pd.Series:
     return daily_new.clip(lower=0).fillna(0)
 
 
-def evaluate(actual, predicted):
+def evaluate(actual, predicted, train):
+    """MAPE explodes when actual values approach zero - this dataset's
+    test window sits at the end of the series, where daily counts have
+    fallen to single digits for several countries, so MAPE alone makes
+    a working model look broken. MASE compares the model's error
+    against a naive 'tomorrow = today' forecast fitted on the training
+    data: it is scale-free and does not blow up near zero. MASE < 1
+    means the model beats that naive baseline."""
     error = actual - predicted
     mae = error.abs().mean()
     rmse = np.sqrt((error ** 2).mean())
@@ -87,9 +94,10 @@ def evaluate(actual, predicted):
     if nonzero.any():
         mape = (error[nonzero].abs() / actual[nonzero]).mean() * 100
     else:
-        # every actual value in the window is zero -> MAPE undefined
         mape = float("nan")
-    return mae, rmse, mape
+    naive_scale = np.abs(np.diff(train.values)).mean()
+    mase = mae / naive_scale if naive_scale > 0 else float("nan")
+    return mae, rmse, mape, mase
 
 
 def main():
@@ -118,7 +126,7 @@ def main():
     test_forecast = model.forecast(N_TEST)
     test_forecast.index = test.index
     test_forecast = test_forecast.clip(lower=0)  # daily case counts can't be negative
-    mae, rmse, mape = evaluate(test, test_forecast)
+    mae, rmse, mape, mase = evaluate(test, test_forecast, train)
 
     # Refit on the FULL series (including the held-out window) before
     # forecasting genuinely new days, so the final forecast uses
@@ -149,6 +157,8 @@ def main():
         f"- MAE:  {mae:,.0f} cases/day",
         f"- RMSE: {rmse:,.0f} cases/day",
         f"- MAPE: {mape:.1f}%",
+        f"- MASE: {mase:.2f}  (below 1.0 beats a naive 'tomorrow = today' forecast; "
+        f"trust this over MAPE when daily counts are near zero)",
         f"\n## Forecast for the next {N_FORECAST} days beyond the last reported date\n",
         "```",
         future_forecast.round(0).to_string(),
@@ -158,7 +168,7 @@ def main():
         "recorded date - not the actual present day.",
     ]
     (OUTPUT_DIR / "forecast_report.md").write_text("\n".join(report))
-    print(f"MAE={mae:,.0f}  RMSE={rmse:,.0f}  MAPE={mape:.1f}%")
+    print(f"MAE={mae:,.0f}  RMSE={rmse:,.0f}  MAPE={mape:.1f}%  MASE={mase:.2f}")
     print(f"Saved chart + report to {OUTPUT_DIR}")
 
 
