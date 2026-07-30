@@ -403,8 +403,10 @@ app.layout = html.Div(
                 html.Div(style={"display": "flex", "gap": "8px", "marginTop": "10px",
                                 "flexWrap": "wrap"},
                          children=[
+                    # No default author: a visitor who does not edit this
+                    # field would otherwise post under the repository
+                    # owner's name.
                     dcc.Input(id="new-author", type="text", placeholder="Your name",
-                              value="Sennur Bascetin",
                               style={"flex": "1", "minWidth": "150px", "border": f"1px solid {BORDER}",
                                      "borderRadius": "6px", "padding": "8px"}),
                     dcc.Input(id="new-email", type="email", placeholder="Your email",
@@ -544,13 +546,22 @@ def update_view(country_a, country_b, rolling, scale):
     # a zero line - even though Turkey's deaths per 100k (123.8) are far
     # higher than China's (7.0). Per-100k removes that distortion; log
     # scale keeps both magnitudes readable on a shared axis.
-    def rescale(ts, summary, col):
+    missing_population = []
+
+    def rescale(ts, summary, col, name):
+        """Return None rather than the raw series when per-capita is
+        requested but population is unavailable. Falling through to raw
+        counts under a 'per 100k' axis label would reproduce exactly the
+        misleading comparison this control exists to prevent."""
         if ts.empty or col not in ts:
             return None
         if scale == "per100k":
             pop = summary.get("POPULATION")
-            if pop:
-                return ts[col] / pop * 100_000
+            if not pop:
+                if name not in missing_population:
+                    missing_population.append(name)
+                return None
+            return ts[col] / pop * 100_000
         return ts[col]
 
     if scale == "per100k":
@@ -565,15 +576,14 @@ def update_view(country_a, country_b, rolling, scale):
     ):
         if not name or ts.empty:
             continue
-        y_cases = rescale(ts, summary, "NEW_CONFIRMED")
-        y_deaths = rescale(ts, summary, "NEW_DEATHS")
+        y_cases = rescale(ts, summary, "NEW_CONFIRMED", name)
+        y_deaths = rescale(ts, summary, "NEW_DEATHS", name)
         if y_cases is not None:
             cases_fig.add_trace(go.Scatter(x=ts["DATE"], y=y_cases, mode="lines",
                                            name=name, line=dict(color=colour, width=2)))
         if y_deaths is not None:
             deaths_fig.add_trace(go.Scatter(x=ts["DATE"], y=y_deaths, mode="lines",
                                             name=name, line=dict(color=colour, width=2)))
-
 
 
 # Nudge the user toward per-capita when absolute counts would be
@@ -608,6 +618,20 @@ def update_view(country_a, country_b, rolling, scale):
                     "fontSize": "13px",
                     "color": INK,
                 })
+
+    if missing_population:
+        scale_warning = html.Div([
+            html.B("Population unavailable"),
+            html.Span(f" for {', '.join(missing_population)} — the "
+                      f"per-100k series is omitted rather than shown as "
+                      f"raw counts under a per-capita label."),
+        ], style={
+            "background": "#fdeaea", "border": "1px solid #f0b0b0",
+            "borderLeft": "5px solid #c0392b", "borderRadius": "8px",
+            "padding": "12px 16px", "marginBottom": "12px",
+            "fontSize": "13px", "color": INK,
+        })
+
 
     scale_note = {"absolute": "", "per100k": " (per 100k)", "log": " (log scale)"}[scale]
     cases_fig.update_layout(
@@ -841,6 +865,8 @@ def manage_annotations(country_a, country_b, n_clicks, author, email, comment, t
     if ctx.triggered_id == "submit-annotation":
         if not comment or not comment.strip():
             status = status_msg("Please write a comment before submitting.", True)
+        elif not author or not author.strip():
+            status = status_msg("Please enter your name before submitting.", True)
         elif not email or not EMAIL_RE.match(email.strip()):
             status = status_msg("Please enter a valid email address to submit a comment.", True)
         else:
@@ -854,21 +880,28 @@ def manage_annotations(country_a, country_b, n_clicks, author, email, comment, t
                 "tags": [],
                 "source_url": None,
             }
-            resp = requests.post(f"{API_URL}/annotations", json=payload, timeout=10)
-            if resp.ok:
-                cleared_comment = ""
-                status = status_msg("Comment posted.", False)
-            else:
+            try:
+                resp = requests.post(f"{API_URL}/annotations", json=payload, timeout=10)
+                if resp.ok:
+                    cleared_comment = ""
+                    status = status_msg("Comment posted.", False)
+                else:
+                    status = status_msg(
+                        "Could not save the comment - please check the email "
+                        "format and try again.", True)
+            except requests.RequestException:
                 status = status_msg(
-                    "Could not save the comment - please check the email format and try again.",
-                    True,
-                )
+                    "The API is not reachable right now - your comment was not "
+                    "saved. Please try again.", True)
 
     def panel(country):
         if not country:
             return None
-        resp = requests.get(f"{API_URL}/annotations/{country}", timeout=10)
-        docs = resp.json() if resp.ok else []
+        try:
+            resp = requests.get(f"{API_URL}/annotations/{country}", timeout=10)
+            docs = resp.json() if resp.ok else []
+        except (requests.RequestException, ValueError):
+            docs = []
         if not docs:
             items = [html.P("No annotations yet.",
                             style={"color": MUTED, "fontStyle": "italic", "fontSize": "13px"})]

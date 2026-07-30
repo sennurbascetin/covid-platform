@@ -73,10 +73,15 @@ Then open:
 To seed the sample MongoDB annotations (optional):
 
 ```bash
+cd covid-platform            # all commands below run from the repo root
 python3 -m venv venv && source venv/bin/activate
 pip install pymongo python-dotenv
 python analysis/setup_mongo_schema.py
 ```
+
+The `mongo` container must already be running (`docker compose ps`),
+and `.env` must contain the same `MONGO_PASSWORD` the container was
+started with.
 
 ## Full setup with your own Snowflake account
 
@@ -119,6 +124,9 @@ python analysis/setup_mongo_schema.py
        python analysis/enrich_data.py    # adds literacy from Kaggle
        python analysis/enrich_owid.py    # adds GDP, age, vaccination, excess mortality
        python analysis/export_snapshot.py  # refresh the offline snapshot
+       # seed the sample annotations (needs the mongo container running)
+       docker compose up -d mongo
+       python analysis/setup_mongo_schema.py
 
    `data/owid_country_static.csv` (one row per country, 31 KB) is
    committed, so step 4 works from a fresh clone. To regenerate it from

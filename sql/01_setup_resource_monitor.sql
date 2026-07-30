@@ -1,3 +1,10 @@
+-- ============================================================
+-- Task 1: cost control.
+-- Snowflake bills for compute time, so a single badly written query
+-- can consume a trial's credits. This monitor caps monthly spend and
+-- escalates: notify, then suspend after running queries finish, then
+-- suspend immediately.
+-- ============================================================
 USE ROLE ACCOUNTADMIN;
 
 CREATE RESOURCE MONITOR IF NOT EXISTS BOOTCAMP_RM
@@ -10,10 +17,17 @@ CREATE RESOURCE MONITOR IF NOT EXISTS BOOTCAMP_RM
     ON 100 PERCENT DO SUSPEND_IMMEDIATE;
 
 ALTER ACCOUNT SET RESOURCE_MONITOR = BOOTCAMP_RM;
+
 SHOW RESOURCE MONITORS;
 
-SELECT CURRENT_USER();
+-- ------------------------------------------------------------
+-- Key-pair authentication (see README step 1).
+-- Snowflake no longer permits password auth for programmatic access.
+-- Generate a key pair locally, then register the PUBLIC half here.
+-- Replace both placeholders with your own values - this statement is
+-- account-specific and will fail on any other user.
+-- ------------------------------------------------------------
+SELECT CURRENT_USER();   -- confirm the exact username to use below
 
-ALTER USER SENNURBASCETIN SET RSA_PUBLIC_KEY='MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzylmmtslrs/g9Ub4UjvHXGX6mJsnKM8k+QNcX4udVnd3goYXcKNck6iG2waqkrMIdI9wpkU5o7mxh0dwZKsOLC7hbGucdfwrzi5TMkvIfaEAMXAzq1puULRzOpOaNG++e07C/NPjiIC6L9bfau18p6bhamq1Tq7hHCA2GkA5Lcris4Nwm6QfQrNsXYxN9hcz+Qo3kFPjgCWilbvltIpxkwAQv13Q79H8dLUfjRDNjDbCGnmfpbCg2AjtkcIk20YqwuR+MCRgF75rmWcWdJkff0taySTMuymFA2A9JvuGOx7t3KVFUF6yLdbA4wMfS1wV7MGyZpC0MCWStgk9RIDV/QIDAQAB';
 
-DESC USER SENNURBASCETIN;
+-- ALTER USER <YOUR_USERNAME> SET RSA_PUBLIC_KEY='<PASTE_YOUR_PUBLIC_KEY>';
