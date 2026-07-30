@@ -1,0 +1,46 @@
+# Runs on every push. Tests use FORCE_SNAPSHOT=1, so no Snowflake
+# credentials are needed here - the same offline path a reviewer
+# without an account would use. Docker builds confirm both images
+# still build cleanly with the pinned dependency versions.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install API dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install test dependencies
+        run: pip install pytest httpx
+
+      - name: Run snapshot-only API tests
+        env:
+          FORCE_SNAPSHOT: "1"
+        run: python -m pytest ../tests/test_api_snapshot.py -v
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -t covid-platform-api ./api
+
+      - name: Build dashboard image
+        run: docker build -t covid-platform-dashboard ./dashboard
